@@ -1,0 +1,9 @@
+# giterate config file
+#
+#[project]
+#path = /path/to/local/files
+#url = https://github.com/project
+#
+#[another project]
+#path = /path/to/local/files
+#url = https://github.com/other_project
