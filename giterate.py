@@ -1,10 +1,17 @@
-import pygit2
+#import pygit2
 import re
 import os,os.path
 import shelve
 from ConfigParser import ConfigParser
 from getopt import gnu_getopt
 from sys import argv, exit
+
+class driver:
+    GITPYTHON = 1
+    PYGIT2 = 2
+
+class gitmode:
+    d = None
 
 class giterate:
 
@@ -13,22 +20,28 @@ class giterate:
     # @param path [string] path to repo files
     # @param remote_url [string] git remote repo used for updates
     def __init__(self, project_name, path, remote_url):
-        self.repo = pygit2.Repository(path)
         self.remote = None
         self.project = project_name
         self.my_dir = os.path.dirname(os.path.abspath(__file__))
         self.db = shelve.open(self.my_dir + os.sep + "cache.db", "c")
         self.excludes = []
         self.includes = []
-
-        for remote in self.repo.remotes:
-            if remote.name == "_giterate":
-                self.remote = remote
-                break
-        if self.remote == None:
-            self.remote = self.repo.create_remote("_giterate", remote_url)
-        else:
-            self.remote.url = remote_url
+        if gitmode.d == driver.GITPYTHON:
+            self.repo = git.Repo(path)
+            try:
+                self.remote = self.repo.remotes._giterate
+            except:
+                self.remote = self.repo.create_remote('_giterate', remote_url)
+        elif gitmode.d == driver.PYGIT2:
+            self.repo = pygit2.Repository(path)
+            for remote in self.repo.remotes:
+                if remote.name == "_giterate":
+                    self.remote = remote
+                    break
+            if type(self.remote) == type(None):
+                self.remote = self.repo.create_remote("_giterate", remote_url)
+            else:
+                self.remote.url = remote_url
 
     def set_includes(self, i):
         if type(i) != type([]):
@@ -63,34 +76,37 @@ class giterate:
         if version_string == None:
             print "Error: no releases found"
             exit(1)
-        ref = self.repo.lookup_reference("refs/tags/" + version_string)
-        current_id = self.repo.head.get_object().id
-        # I believe merge will throw an exception
-        # if a conflict occurs but haven't verified that
-        # with a proper test case
-        try:
-            print "Merging version " + version_string
-            merge_result = self.repo.merge(ref.get_object().id)
-            if not(merge_result.is_uptodate):
-                user = pygit2.Signature('giterate', 'giterate@giterate')
-                tree = self.repo.TreeBuilder().write()
-                new_oid = self.repo.create_commit(self.head.name, user, user, tree, [])
-                self.repo.head.resolve().target = new_oid
-                self.db[self.project] = version_string
-                print "Merge complete"
-            elif merge_result.is_uptodate:
-                self.db[self.project] = version_string
-                print "Merge not needed; updating records"
-        except:
-            self.repo.reset(current_id, pygit2.GIT_RESET_HARD)
-            print "Merge failed. Rolling back changes"
+        if gitmode.d == driver.GITPYTHON:
+            tag_commit = self.repo.tag('refs/tags/' + version_string).commit
+            self.repo.git.merge(tag_commit)
+        else:
+            ref = self.repo.lookup_reference("refs/tags/" + version_string)
+            current_id = self.repo.head.get_object().id
+            # I believe merge will throw an exception
+            # if a conflict occurs but haven't verified that
+            # with a proper test case
+            try:
+                print "Merging version " + version_string
+                merge_result = self.repo.merge(ref.get_object().id)
+                if not(merge_result.is_uptodate):
+                    user = pygit2.Signature('giterate', 'giterate@giterate')
+                    tree = self.repo.TreeBuilder().write()
+                    new_oid = self.repo.create_commit(self.head.name, user, user, tree, [])
+                    self.repo.head.resolve().target = new_oid
+                    self.db[self.project] = version_string
+                    print "Merge complete"
+                elif merge_result.is_uptodate:
+                    self.db[self.project] = version_string
+                    print "Merge not needed; updating records"
+            except:
+                self.repo.reset(current_id, pygit2.GIT_RESET_HARD)
+                print "Merge failed. Rolling back changes"
 
     # get latest version
     # returns tag string
     def latest_version(self):
         self.remote.fetch()
-        regex = re.compile('^refs/tags/(.*)$')
-        matches = [m.group(1) for m in map(regex.match, self.repo.listall_references()) if m]
+        matches = self.get_tags()
         for val in matches[:]:
             for x in self.excludes:
                 if x in val: matches.remove(val)
@@ -102,6 +118,14 @@ class giterate:
             return matches[-1]
         else:
             return None
+
+    def get_tags(self):
+        if gitmode.d == driver.GITPYTHON:
+            return [t.name for t in self.repo.tags]
+        elif gitmode.d == driver.PYGIT2:
+            regex = re.compile('^refs/tags/(.*)$')
+            matches = [m.group(1) for m in map(regex.match, self.repo.listall_references()) if m]
+            return matches
     
     # keying function to sort version strings
     # in a sensible order
@@ -154,6 +178,18 @@ class giterate:
 config file or as command line options"""
 
 if __name__ == '__main__':
+    try:
+        import pygit2
+        gitmode.d = driver.PYGIT2
+    except:
+        try:
+            import git
+            gitmode.d = driver.GITPYTHON
+        except:
+            print "No drivers found!"
+            print "Install GitPython or pygit2"
+            exit(1)
+
     try:
         optlist, args = gnu_getopt(argv[1:], 
                                    'n:p:r:c:uhsx:i:', 
