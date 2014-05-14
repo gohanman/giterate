@@ -18,6 +18,8 @@ class giterate:
         self.project = project_name
         self.my_dir = os.path.dirname(os.path.abspath(__file__))
         self.db = shelve.open(self.my_dir + os.sep + "cache.db", "c")
+        self.excludes = []
+        self.includes = []
 
         for remote in self.repo.remotes:
             if remote.name == "_giterate":
@@ -27,6 +29,16 @@ class giterate:
             self.remote = self.repo.create_remote("_giterate", remote_url)
         else:
             self.remote.url = remote_url
+
+    def set_includes(self, i):
+        if type(i) != type([]):
+            raise ValueError
+        self.includes = i
+
+    def set_excludes(self, x):
+        if type(x) != type([]):
+            raise ValueError
+        self.excludes = x
     
     def check(self):
         current = "0"
@@ -79,6 +91,11 @@ class giterate:
         self.remote.fetch()
         regex = re.compile('^refs/tags/(.*)$')
         matches = [m.group(1) for m in map(regex.match, self.repo.listall_references()) if m]
+        for val in matches[:]:
+            for x in self.excludes:
+                if x in val: matches.remove(val)
+            for i in self.includes:
+                if i not in val: matches.remove(val)
         matches.sort(key=self.version_key)
 
         if len(matches) > 0:
@@ -124,6 +141,10 @@ class giterate:
         print "\t\t\tDefault: /etc/giterate.conf, " + this_dir + os.sep + 'giterate.conf'
         print "\t-p, --path\tProject\'s filesystem path"
         print "\t-r, --remote\tGit URL for update repo"
+        print "\t-i, --include\tOnly include tags containing this string"
+        print "\t\t\tMay be specified multiple times"
+        print "\t-x, --exclude\tExclude tags containing this string"
+        print "\t\t\tMay be specified multiple times"
         print "\t-u, --update\tApply available updates"
         print "\t\t\tOtherwise just check for available updates"
         print "\t-s, --self\tCheck for giterate updates"
@@ -134,7 +155,9 @@ config file or as command line options"""
 
 if __name__ == '__main__':
     try:
-        optlist, args = gnu_getopt(argv[1:], 'n:p:r:c:uhs', ['name=', 'path=', 'remote=', 'config=', 'update', 'help', 'self'])
+        optlist, args = gnu_getopt(argv[1:], 
+                                   'n:p:r:c:uhsx:i:', 
+                                   ['name=', 'path=', 'remote=', 'config=', 'update', 'help', 'self','exclude=','include='])
     except Exception, e:
         giterate.print_help()
         print e
@@ -144,6 +167,8 @@ if __name__ == '__main__':
     path = None
     remote = None
     update = False
+    excludes = []
+    includes = []
 
     config = ConfigParser()
     this_dir = os.path.dirname(os.path.abspath(__file__))
@@ -173,6 +198,10 @@ if __name__ == '__main__':
             name = 'giterate'
             path = this_dir
             remote = 'https://github.com/gohanman/giterate'
+        elif k in ['-x', '--exclude']:
+            excludes.append(v)
+        elif k in ['-i', '--include']:
+            includes.append(v)
         elif k in ['-h', '--help']:
             giterate.print_help()
             exit(0)
@@ -195,9 +224,16 @@ if __name__ == '__main__':
                 exit(1)
             else:
                 g = giterate(name, config.get(name, 'path'), config.get(name, 'url'))
+                if config.has_option(name, 'exclude'):
+                    excludes += [v for v in config.get(name, 'exclude').split(' ')]
+                if config.has_option(name, 'include'):
+                    includes += [v for v in config.get(name, 'include').split(' ')]
         else:
             print 'Error: no config section for project ' + name
             exit(1)
+    
+    g.set_excludes(excludes)
+    g.set_includes(includes)
 
     if update:
         g.update()

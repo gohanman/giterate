@@ -3,6 +3,8 @@
 #[project]
 #path = /path/to/local/files
 #url = https://github.com/project
+#exclude = rc alpha beta
+#include = V v
 #
 #[another project]
 #path = /path/to/local/files
