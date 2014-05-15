@@ -88,6 +88,7 @@ class giterate:
                 for stage, _ in self.repo.index.iter_blobs():
                     if stage != 0:
                         raise Exception() 
+                self.db[self.project] = version_string
                 print "Merge complete"
             except:
                 self.repo.head.reset(commit=current_id, index=True, working_tree=True)
