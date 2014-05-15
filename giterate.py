@@ -6,10 +6,12 @@ from ConfigParser import ConfigParser
 from getopt import gnu_getopt
 from sys import argv, exit
 
+# driver enum
 class driver:
     GITPYTHON = 1
     PYGIT2 = 2
 
+# globalish value specifying driver
 class gitmode:
     d = None
 
@@ -71,22 +73,32 @@ class giterate:
             print "Current Version: " + str(current)
             print "Latest Known Version: " + latest
     
-    def update(self):
+    def update(self, force=False):
         version_string = self.latest_version()
         if version_string == None:
             print "Error: no releases found"
             exit(1)
+        print "Merging version " + version_string
         if gitmode.d == driver.GITPYTHON:
             tag_commit = self.repo.tag('refs/tags/' + version_string).commit
-            self.repo.git.merge(tag_commit)
-        else:
+            current_id = self.repo.head.commit
+            try:
+                self.repo.git.merge(tag_commit)
+                # check index to detect merge errors
+                for stage, _ in self.repo.index.iter_blobs():
+                    if stage != 0:
+                        raise Exception() 
+                print "Merge complete"
+            except:
+                self.repo.head.reset(commit=current_id, index=True, working_tree=True)
+                print "Merge failed. Rolling back changes"
+        elif gitmode.d == driver.PYGIT2:
             ref = self.repo.lookup_reference("refs/tags/" + version_string)
             current_id = self.repo.head.get_object().id
             # I believe merge will throw an exception
             # if a conflict occurs but haven't verified that
             # with a proper test case
             try:
-                print "Merging version " + version_string
                 merge_result = self.repo.merge(ref.get_object().id)
                 if not(merge_result.is_uptodate):
                     user = pygit2.Signature('giterate', 'giterate@giterate')
@@ -171,6 +183,7 @@ class giterate:
         print "\t\t\tMay be specified multiple times"
         print "\t-u, --update\tApply available updates"
         print "\t\t\tOtherwise just check for available updates"
+        print "\t-f, --force\tDo not rollback on update errors"
         print "\t-s, --self\tCheck for giterate updates"
         print "\t-h, --help\tPrint this message"
         print ''
@@ -179,12 +192,12 @@ config file or as command line options"""
 
 if __name__ == '__main__':
     try:
-        import pygit2
-        gitmode.d = driver.PYGIT2
+        import git
+        gitmode.d = driver.GITPYTHON
     except:
         try:
-            import git
-            gitmode.d = driver.GITPYTHON
+            import pygit2
+            gitmode.d = driver.PYGIT2
         except:
             print "No drivers found!"
             print "Install GitPython or pygit2"
@@ -192,8 +205,8 @@ if __name__ == '__main__':
 
     try:
         optlist, args = gnu_getopt(argv[1:], 
-                                   'n:p:r:c:uhsx:i:', 
-                                   ['name=', 'path=', 'remote=', 'config=', 'update', 'help', 'self','exclude=','include='])
+                                   'n:p:r:c:uhsx:i:f', 
+                                   ['name=', 'path=', 'remote=', 'config=', 'update', 'help', 'self','exclude=','include=', 'force'])
     except Exception, e:
         giterate.print_help()
         print e
@@ -203,6 +216,7 @@ if __name__ == '__main__':
     path = None
     remote = None
     update = False
+    force = False
     excludes = []
     includes = []
 
@@ -222,6 +236,8 @@ if __name__ == '__main__':
             remote = v
         elif k in ['-u', '--update']:
             update = True
+        elif k in ['-f', '--force']:
+            force = True
         elif k in ['-c', '--config']:
             if os.path.isfile(v):
                 # load requested config
@@ -272,7 +288,7 @@ if __name__ == '__main__':
     g.set_includes(includes)
 
     if update:
-        g.update()
+        g.update(force)
     else:
         g.check()
     exit(0)
