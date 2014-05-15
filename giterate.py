@@ -62,6 +62,7 @@ class giterate:
         latest = self.latest_version()
         if current == latest:
             print "Up-to-date"
+            print "Current Version: " + current
         elif latest == None:
             print "No releases found"
         elif current == "0" or self.version_key(current) < self.version_key(latest):
